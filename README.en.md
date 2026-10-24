@@ -2,6 +2,8 @@
 
 English | [中文](README.md)
 
+Before anything else: this is a second take on the official reasoning-translation plugin. When both are enabled, this plugin registers at `priority: 50` in the reasoning-body slot and shadows the official entry at 100, so the toolbar you see is this one; disabling it returns to the official implementation. On top of the official behavior it adds configurable translation sites, reuse of a model provider already registered in the Harness, a dedicated translation provider of its own (a locally deployed small translation model works), and retry on failure. Built against DSH 0.2.1-rc2.
+
 A DeepSeek Harness (DSH) plugin that translates expanded reasoning: when a "Thinking" row expands, completed paragraphs are translated one by one into the interface language or a language you choose, and the unfinished streaming tail stays in its source language. Translation comes from one of two configurable routes — **any HTTP translation site**, or **a model** (a provider already registered in the Harness, or a custom OpenAI-compatible provider stored only inside this plugin).
 
 ## Features
