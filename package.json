@@ -1,0 +1,63 @@
+{
+  "name": "dsh-cot-translator-plus",
+  "version": "0.3.0",
+  "private": false,
+  "type": "module",
+  "icon": "./icon.svg",
+  "description": "把展开的思考内容翻译成界面语言或指定语言：支持任意 HTTP 翻译站点模板，以及模型翻译（DSH 已注册提供商或插件自带的 OpenAI 兼容自定义提供商）。Translate expanded reasoning through configurable HTTP translation sites or an LLM route.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "translation",
+    "translator",
+    "reasoning",
+    "chain-of-thought",
+    "cot",
+    "llm"
+  ],
+  "license": "MIT",
+  "author": "Sodapopper-pixel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sodapopper-pixel/dsh-cot-translator-plus.git"
+  },
+  "homepage": "https://github.com/Sodapopper-pixel/dsh-cot-translator-plus#readme",
+  "bugs": {
+    "url": "https://github.com/Sodapopper-pixel/dsh-cot-translator-plus/issues"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "icon.svg",
+    "locale/*.json",
+    "lib",
+    "src",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test \"tests/*.test.mjs\""
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ],
+      "platform": "web"
+    }
+  }
+}

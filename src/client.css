@@ -1,0 +1,186 @@
+/* Reasoning translation controls and the plugin settings card. */
+
+.cot-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cot-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cot-select,
+.cot-input,
+.cot-textarea {
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+  transition: border-color var(--ds-transition-duration, .2s) var(--ds-ease-in-out, ease-in-out);
+}
+
+.cot-select {
+  max-width: 220px;
+  cursor: pointer;
+}
+
+/* Icon-only toolbar action: square so it matches the adjacent text buttons. */
+.cot-icon-button {
+  width: 28px;
+  padding: 0;
+  flex: none;
+}
+
+.cot-select:hover,
+.cot-input:hover,
+.cot-textarea:hover {
+  border-color: var(--dsw-alias-label-tertiary, var(--dsw-alias-border-l2));
+}
+
+.cot-select:focus-visible,
+.cot-input:focus-visible,
+.cot-textarea:focus-visible {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.cot-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--dsw-alias-label-secondary) 35%, transparent);
+  border-top-color: var(--dsw-alias-brand-primary);
+  border-radius: 50%;
+  animation: cot-spin .8s linear infinite;
+  flex: none;
+}
+
+@keyframes cot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cot-spinner {
+    animation-duration: 2s;
+  }
+}
+
+.cot-failed {
+  color: var(--dsw-alias-state-error-primary, var(--dsw-alias-label-secondary));
+}
+
+.cot-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 720px;
+}
+
+.cot-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cot-field > label,
+.cot-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.cot-heading {
+  margin: 6px 0 0;
+}
+
+.cot-details {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 6px 10px 10px;
+}
+
+.cot-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cot-details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.cot-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cot-textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.cot-json {
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+}
+
+.cot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cot-status {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cot-status-error {
+  color: var(--dsw-alias-state-error-primary, var(--dsw-alias-label-primary));
+}
+
+.cot-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cot-row > .cot-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cot-probe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cot-probe > select {
+  flex: 0 1 220px;
+  min-width: 0;
+}
+
+.cot-probe > .cot-input {
+  flex: 1 1 180px;
+  min-width: 0;
+}

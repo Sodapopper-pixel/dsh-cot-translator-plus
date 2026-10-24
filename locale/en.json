@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Reasoning translation (configurable sites and LLM)",
+    "description": "Translate expanded reasoning into the interface or chosen language through any configured HTTP translation site, a model registered in the Harness, or a custom endpoint stored in the plugin, with the original always one click away."
+  }
+}
