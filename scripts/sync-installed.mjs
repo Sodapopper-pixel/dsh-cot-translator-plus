@@ -15,7 +15,8 @@ const apply = args.includes('--apply')
 const targetIndex = args.indexOf('--target')
 const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const target = resolve(targetIndex >= 0 ? args[targetIndex + 1] : join(home, 'profiles', 'web', 'node_modules', 'dsh-cot-translator-plus'))
-const SKIP = new Set(['scripts', 'tests', '.gitignore'])
+/** Never mirrored: the checkout's own history, the tool scripts, and the tests. */
+const SKIP = new Set(['scripts', 'tests', '.git', '.gitignore'])
 
 function filesOf(directory) {
   const out = []
