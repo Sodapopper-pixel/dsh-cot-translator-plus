@@ -43,6 +43,12 @@
   flex: none;
 }
 
+/* Both disclosure levels can close over the card: the enclosing Turn process
+   group and the reasoning row itself. Nothing is translating while one is shut. */
+.cot-body[data-cot-open='false'] :is(.cot-toolbar, .cot-spinner, .cot-failed) {
+  display: none;
+}
+
 .cot-select:hover,
 .cot-input:hover,
 .cot-textarea:hover {
@@ -184,3 +190,76 @@
   flex: 1 1 180px;
   min-width: 0;
 }
+
+/* Phones: on a 390px viewport the read column leaves 32px of padding before a
+   268px toolbar at the reasoning row's own gap plus 22px indent, and the Host
+   caps a nested process group at min(400px, 50vh) — about 200px of the content
+   after the group header and the row. Take the width and release the cap.
+
+   `data-cot-group-mode` is set by the card on the group's header element; the
+   header and body are siblings. */
+@media (max-width: 767px) {
+  .cot-toolbar {
+    gap: 6px 4px;
+    font-size: 11.5px;
+  }
+
+  /* One tap target size for the whole toolbar; the official small button is 28px tall. */
+  .cot-toolbar > .dsh-button {
+    min-height: 28px;
+  }
+
+  .cot-select {
+    max-width: none;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  [data-variant='think'][data-cot-fit] > [data-open] > div {
+    padding-left: 0;
+  }
+
+  [data-cot-group-mode='content'] + [data-step-process-body] {
+    max-height: none;
+    overflow: visible;
+    scrollbar-gutter: auto;
+    overscroll-behavior-y: auto;
+  }
+
+  /* One row while the body scrolls beneath the group's sticky header. */
+  [data-cot-group-mode='content'] + [data-step-process-body].cot-group-pinned,
+  [data-cot-group-mode='content'].cot-group-pinned + [data-step-process-body] {
+    max-height: min(400px, 50vh);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  [data-cot-group-mode='content'] + [data-step-process-body].cot-group-pinned > [data-step-process-content],
+  [data-cot-group-mode='content'].cot-group-pinned + [data-step-process-body] > [data-step-process-content] {
+    margin-top: calc(28px + var(--dsh-content-font-delta, 0px));
+  }
+
+  [data-cot-group-mode='content'] + [data-step-process-body].cot-group-pinned [data-step-process-chevron],
+  [data-cot-group-mode='content'] + [data-step-process-body].cot-group-pinned [data-step-process-icon],
+  [data-cot-group-mode='content'].cot-group-pinned + [data-step-process-body] [data-step-process-chevron],
+  [data-cot-group-mode='content'].cot-group-pinned + [data-step-process-body] [data-step-process-icon] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: calc(16px + var(--dsh-content-font-delta, 0px));
+    height: calc(28px + var(--dsh-content-font-delta, 0px));
+  }
+
+  [data-cot-group-mode='content'] + [data-step-process-body].cot-group-pinned [data-step-process-chevron],
+  [data-cot-group-mode='content'].cot-group-pinned + [data-step-process-body] [data-step-process-chevron] {
+    opacity: 1;
+  }
+
+  [data-cot-group-mode='content'] + [data-step-process-body].cot-group-pinned [data-step-process-icon],
+  [data-cot-group-mode='content'] + [data-step-process-body].cot-group-pinned button:is(:hover, :focus-visible) [data-step-process-icon],
+  [data-cot-group-mode='content'].cot-group-pinned + [data-step-process-body] [data-step-process-icon],
+  [data-cot-group-mode='content'].cot-group-pinned + [data-step-process-body] button:is(:hover, :focus-visible) [data-step-process-icon] {
+    opacity: 0;
+  }
+}
+

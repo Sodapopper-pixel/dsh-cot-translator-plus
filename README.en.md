@@ -37,6 +37,12 @@ Expand any reasoning row: the toolbar shows a service selector and the original/
 
 `auto` follows the interface language; an explicit code such as `zh`, `en`, or `ja` overrides it.
 
+## Mobile
+
+Below 767px the toolbar switches to a phone layout: it drops the reasoning row's indent, lets the service select take a full line, gives every control a 28px height, and is no longer clipped by the enclosing disclosure. The process group holding the reasoning row grows to its full height on narrow screens, and its header folds to a single row while the body scrolls, so the translation is not squeezed into a 400px box.
+
+When either fold is shut — the process group or the reasoning row — the toolbar and its status hide and no translation request is sent, so a closed disclosure never spends the reader's quota.
+
 ## Site configuration
 
 The site list is a JSON array; each entry describes one HTTP call:

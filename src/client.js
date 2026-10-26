@@ -6,6 +6,13 @@ export const NS = 'cotTranslator'
 const PROVIDER_KEY = 'dsh-cot-translator-plus.provider'
 const STYLE_ID = 'dsh-cot-translator-plus/style'
 
+/** The reasoning disclosure whose expanded body mounts this card. */
+const REASONING_ROW = '[data-variant="think"]'
+/** Header attribute that flips the nested process group from capped to full height. */
+const GROUP_MODE = 'data-cot-group-mode'
+/** Header class that keeps a group in single-row mode while its body is scrolled. */
+const PINNED = 'cot-group-pinned'
+
 /** English copy and key source. */
 export const en = {
   provider: 'Translation service',
@@ -220,6 +227,123 @@ function translatedBody(renderFactorySlot, text, running) {
   return renderFactorySlot('conversation.chat.reasoning.content', { text, running })
 }
 
+function styleOf(element) {
+  return typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+    ? window.getComputedStyle(element)
+    : null
+}
+
+function clipped(element) {
+  const style = styleOf(element)
+  if (style === null) return false
+  return style.display === 'none' || style.visibility === 'hidden' || element.getClientRects().length === 0
+}
+
+/**
+ * Fit the card and its disclosure ancestors to the viewport width.
+ *
+ * The official reasoning row indents its body by 22px and the Host caps a nested process group body at
+ * `min(400px, 50vh)`. A phone then has about 200px of content between two folds: the reasoning
+ * disclosure and the group it belongs to. `overflow-y: auto` on that capped body also computes
+ * `overflow-x: auto`, so the toolbar cannot extend past the box either. Narrow screens drop both
+ * indents and lift the cap, and the group header stays one row while its body scrolls.
+ * @param card - the mounted translation card.
+ * @param narrow - whether the viewport is phone-width.
+ */
+function fitToolbar(card, narrow) {
+  const body = card.closest('[data-step-process-body]')
+  const header = body === null ? null : body.previousElementSibling
+  const row = card.closest(REASONING_ROW)
+  if (header === null) { /* The row sits outside any process group. */ }
+  else if (narrow) header.setAttribute(GROUP_MODE, 'content')
+  else header.removeAttribute(GROUP_MODE)
+  if (row !== null) {
+    if (narrow) row.setAttribute('data-cot-fit', 'true')
+    else row.removeAttribute('data-cot-fit')
+  }
+  markScrolledGroups()
+}
+
+/**
+ * Republish the fitted state when the viewport crosses the phone width.
+ * @param read - the measurement callback.
+ * @returns the disconnect function.
+ */
+function followViewport(read) {
+  const narrow = window.matchMedia('(max-width: 767px)')
+  narrow.addEventListener('change', read)
+  return () => { narrow.removeEventListener('change', read) }
+}
+
+/**
+ * Keep a scrolled group body in single-row mode across reloads and remounts.
+ *
+ * The card sets `data-cot-group-mode` on the group header, which is not a React-owned attribute, so it
+ * survives re-renders. This marks every group whose body currently scrolls, and the stylesheet collapses
+ * those headers to one row.
+ */
+function markScrolledGroups() {
+  for (const body of document.querySelectorAll('[data-step-process-body]')) {
+    const header = body.previousElementSibling
+    if (header === null || header.getAttribute(GROUP_MODE) === null) continue
+    header.classList.toggle(PINNED, body.scrollTop > 0)
+  }
+}
+
+/**
+ * Re-read the layout when a scroll inside a group body changes which row the header should show.
+ * @param read - the measurement callback, run once per animation frame.
+ * @returns the disconnect function.
+ */
+function followGroupScroll(read) {
+  const schedule = () => {
+    const flag = 'data-cot-layout'
+    if (document.documentElement.getAttribute(flag) !== null) return
+    document.documentElement.setAttribute(flag, '')
+    requestAnimationFrame(() => {
+      document.documentElement.removeAttribute(flag)
+      read()
+    })
+  }
+  const scroll = (event) => {
+    const target = event.target
+    if (target instanceof Element && target.closest('[data-step-process-body]') !== null) schedule()
+  }
+  window.addEventListener('scroll', scroll, true)
+  return () => { window.removeEventListener('scroll', scroll, true) }
+}
+
+/**
+ * Publish the disclosure state the stylesheet and the translation status read from.
+ * @param card - the mounted translation card.
+ * @returns the cleanup function.
+ */
+function bindToolbarLayer(card) {
+  const narrow = window.matchMedia('(max-width: 767px)')
+  const read = () => {
+    if (!card.isConnected) return
+    // The translation is invisible while either an outer Turn group or the reasoning row itself is
+    // folded; translating there spends the reader's quota on text nobody can open.
+    const hidden = [card.closest('[data-turn-process-inline]'), card.closest(REASONING_ROW)]
+      .some(element => element !== null && clipped(element))
+    card.setAttribute('data-cot-open', hidden ? 'false' : 'true')
+    fitToolbar(card, narrow.matches)
+  }
+  read()
+  const stopFollowingScroll = followGroupScroll(read)
+  const stopFollowingViewport = followViewport(read)
+  return () => {
+    stopFollowingScroll()
+    stopFollowingViewport()
+    const row = card.closest(REASONING_ROW)
+    if (row !== null) row.removeAttribute('data-cot-fit')
+    const body = card.closest('[data-step-process-body]')
+    const header = body === null ? null : body.previousElementSibling
+    if (header !== null) header.removeAttribute(GROUP_MODE)
+    card.removeAttribute('data-cot-open')
+  }
+}
+
 /**
  * Render translated reasoning beside the original, with a per-disclosure service choice.
  * @param props - original reasoning, streaming state, framework Factory renderer, locale, and injected state.
@@ -233,6 +357,7 @@ function CotTranslationBody(props) {
   const [shown, setShown] = React.useState({ text, pending: false, failed: false })
   const [original, setOriginal] = React.useState(false)
   const controller = React.useRef(null)
+  const card = React.useRef(null)
   const providers = config === null ? [] : config.providers
   const resolvedProvider = providers.some(entry => entry.id === providerId)
     ? providerId
@@ -255,12 +380,13 @@ function CotTranslationBody(props) {
     if (!ready) return
     controller.current?.update(text, running)
   }, [text, running, ready, resolvedProvider, targetLanguage, maxTextChars])
+  React.useEffect(() => (card.current === null ? undefined : bindToolbarLayer(card.current)), [ready])
 
   const failed = shown.failed
   const showOriginal = !ready || original || failed
   const body = translatedBody(renderFactorySlot, showOriginal ? text : shown.text, running)
   if (!ready) return React.createElement('div', { className: 'cot-body' }, body)
-  return React.createElement('div', { className: 'cot-body', 'data-cot-translator': 'true', 'data-cot-state': failed ? 'failed' : shown.pending ? 'pending' : 'ready' },
+  return React.createElement('div', { ref: card, className: 'cot-body', 'data-cot-translator': 'true', 'data-cot-state': failed ? 'failed' : shown.pending ? 'pending' : 'ready' },
     React.createElement('div', { className: 'cot-toolbar' },
       providers.length > 1
         ? React.createElement('select', {
