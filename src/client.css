@@ -43,12 +43,6 @@
   flex: none;
 }
 
-/* Both disclosure levels can close over the card: the enclosing Turn process
-   group and the reasoning row itself. Nothing is translating while one is shut. */
-.cot-body[data-cot-open='false'] :is(.cot-toolbar, .cot-spinner, .cot-failed) {
-  display: none;
-}
-
 .cot-select:hover,
 .cot-input:hover,
 .cot-textarea:hover {

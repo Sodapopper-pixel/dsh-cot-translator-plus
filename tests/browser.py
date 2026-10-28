@@ -398,13 +398,13 @@ def narrow_toolbar_layout(browser, stylesheet):
         '</div></div>'
     )
 
-    def measure(context, width, open_state):
+    def measure(context, width):
         page = context.new_page()
         page.set_viewport_size({'width': width, 'height': 844})
         page.set_content(
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f'<style>{stylesheet}</style>'
-            f'<div style="padding: 8px">{card.replace("data-cot-translator", f"data-cot-open={open_state} data-cot-translator")}</div>')
+            f'<div style="padding: 8px">{card}</div>')
         measured = page.evaluate('''() => {
           const bar = document.querySelector('.cot-toolbar')
           const box = bar.getBoundingClientRect()
@@ -428,9 +428,8 @@ def narrow_toolbar_layout(browser, stylesheet):
     phone = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
     desktop = browser.new_context(viewport={'width': 1280, 'height': 900})
     try:
-        record['phone'] = measure(phone, 390, 'true')
-        record['folded'] = measure(phone, 390, 'false')
-        record['desktop'] = measure(desktop, 1280, 'true')
+        record['phone'] = measure(phone, 390)
+        record['desktop'] = measure(desktop, 1280)
     finally:
         phone.close()
         desktop.close()
@@ -450,7 +449,8 @@ def bundle_checks(browser, page):
         'resetControl': "t('systemPromptReset')" in bundle,
         'clearedPrompt': "systemPrompt === undefined || draft.llm.systemPrompt === ''" in bundle,
         'customProviderCopy': '自定义提供商' in bundle and '独立提供商' not in bundle,
-        'fittedToolbar': "data-cot-open" in bundle and 'data-cot-fit' in bundle,
+        'fittedToolbar': 'data-cot-fit' in bundle and 'data-cot-open' not in bundle,
+        'unavailableRetry': "cotTranslatorStatus: loadStatus" in bundle and "t('unavailable')" in bundle,
         'narrowStylesheet': '@media (max-width: 767px)' in stylesheet,
         'toolbar': narrow_toolbar_layout(browser, stylesheet),
     }
@@ -601,7 +601,7 @@ def main():
     assert bundle['narrowStylesheet'], 'the phone stylesheet is missing from the injected CSS'
 
     toolbar = bundle['toolbar']
-    phone, desktop, folded = toolbar['phone'], toolbar['desktop'], toolbar['folded']
+    phone, desktop = toolbar['phone'], toolbar['desktop']
     assert phone['shown'], 'the toolbar must show while the card is open'
     assert phone['horizontalOverflow'] <= 0, toolbar
     assert phone['right'] <= phone['viewport'], toolbar
@@ -611,7 +611,6 @@ def main():
         assert item['height'] >= 20, 'the phone control is too small to tap'
     assert phone['height'] <= 30, 'the phone toolbar wrapped onto a second row'
     assert desktop['shown'] and desktop['height'] < phone['height'] + 6, 'the desktop toolbar must stay one row'
-    assert not folded['shown'], 'a folded disclosure hides the toolbar and its status'
 
     if 'refreshButton' in RECORD:
         assert RECORD['refreshButton'] >= 1, RECORD['refreshButton']

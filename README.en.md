@@ -41,7 +41,7 @@ Expand any reasoning row: the toolbar shows a service selector and the original/
 
 Below 767px the toolbar switches to a phone layout: it drops the reasoning row's indent, lets the service select take a full line, gives every control a 28px height, and is no longer clipped by the enclosing disclosure. The process group holding the reasoning row grows to its full height on narrow screens, and its header folds to a single row while the body scrolls, so the translation is not squeezed into a 400px box.
 
-When either fold is shut — the process group or the reasoning row — the toolbar and its status hide and no translation request is sent, so a closed disclosure never spends the reader's quota.
+An open reasoning row translates in place. When the service select cannot read the settings, translation still runs through the Host's default service: the toolbar says the settings are unavailable and offers a reload instead of disappearing.
 
 ## Site configuration
 

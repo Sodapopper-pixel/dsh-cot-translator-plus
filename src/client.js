@@ -227,18 +227,6 @@ function translatedBody(renderFactorySlot, text, running) {
   return renderFactorySlot('conversation.chat.reasoning.content', { text, running })
 }
 
-function styleOf(element) {
-  return typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
-    ? window.getComputedStyle(element)
-    : null
-}
-
-function clipped(element) {
-  const style = styleOf(element)
-  if (style === null) return false
-  return style.display === 'none' || style.visibility === 'hidden' || element.getClientRects().length === 0
-}
-
 /**
  * Fit the card and its disclosure ancestors to the viewport width.
  *
@@ -314,7 +302,7 @@ function followGroupScroll(read) {
 }
 
 /**
- * Publish the disclosure state the stylesheet and the translation status read from.
+ * Keep the card's disclosure ancestors fitted as the viewport and the group scroll change.
  * @param card - the mounted translation card.
  * @returns the cleanup function.
  */
@@ -322,11 +310,6 @@ function bindToolbarLayer(card) {
   const narrow = window.matchMedia('(max-width: 767px)')
   const read = () => {
     if (!card.isConnected) return
-    // The translation is invisible while either an outer Turn group or the reasoning row itself is
-    // folded; translating there spends the reader's quota on text nobody can open.
-    const hidden = [card.closest('[data-turn-process-inline]'), card.closest(REASONING_ROW)]
-      .some(element => element !== null && clipped(element))
-    card.setAttribute('data-cot-open', hidden ? 'false' : 'true')
     fitToolbar(card, narrow.matches)
   }
   read()
@@ -340,7 +323,6 @@ function bindToolbarLayer(card) {
     const body = card.closest('[data-step-process-body]')
     const header = body === null ? null : body.previousElementSibling
     if (header !== null) header.removeAttribute(GROUP_MODE)
-    card.removeAttribute('data-cot-open')
   }
 }
 
@@ -352,6 +334,7 @@ function bindToolbarLayer(card) {
 function CotTranslationBody(props) {
   const { text, running, renderFactorySlot, t, translate } = props
   const config = props.useCotTranslatorState(value => value)
+  const loadStatus = props.useCotTranslatorStatus(value => value)
   const activeLocale = props.useCotTranslatorLocale(value => value)
   const [providerId, setProviderId] = React.useState(readStoredProvider)
   const [shown, setShown] = React.useState({ text, pending: false, failed: false })
@@ -362,12 +345,12 @@ function CotTranslationBody(props) {
   const resolvedProvider = providers.some(entry => entry.id === providerId)
     ? providerId
     : (config === null ? '' : providers.some(entry => entry.id === config.defaultProvider) ? config.defaultProvider : providers[0]?.id ?? '')
-  const targetLanguage = config === null ? 'auto' : (config.targetLanguage === 'auto' ? activeLocale : config.targetLanguage)
+  // Without the settings the Host still resolves its own default provider and text limit, so only the
+  // target language has to come from the browser locale the card already knows.
+  const targetLanguage = config === null ? activeLocale : (config.targetLanguage === 'auto' ? activeLocale : config.targetLanguage)
   const maxTextChars = config === null ? 4000 : config.maxTextChars
-  const ready = config !== null && resolvedProvider !== ''
 
   React.useEffect(() => {
-    if (!ready) return undefined
     const instance = new ReasoningTranslation({ provider: resolvedProvider, targetLanguage }, maxTextChars, translate, setShown)
     controller.current = instance
     instance.update(text, running)
@@ -375,17 +358,15 @@ function CotTranslationBody(props) {
       instance.dispose()
       controller.current = null
     }
-  }, [ready, resolvedProvider, targetLanguage, maxTextChars])
+  }, [resolvedProvider, targetLanguage, maxTextChars])
   React.useEffect(() => {
-    if (!ready) return
     controller.current?.update(text, running)
-  }, [text, running, ready, resolvedProvider, targetLanguage, maxTextChars])
-  React.useEffect(() => (card.current === null ? undefined : bindToolbarLayer(card.current)), [ready])
+  }, [text, running, resolvedProvider, targetLanguage, maxTextChars])
+  React.useEffect(() => (card.current === null ? undefined : bindToolbarLayer(card.current)), [])
 
   const failed = shown.failed
-  const showOriginal = !ready || original || failed
+  const showOriginal = original || failed
   const body = translatedBody(renderFactorySlot, showOriginal ? text : shown.text, running)
-  if (!ready) return React.createElement('div', { className: 'cot-body' }, body)
   return React.createElement('div', { ref: card, className: 'cot-body', 'data-cot-translator': 'true', 'data-cot-state': failed ? 'failed' : shown.pending ? 'pending' : 'ready' },
     React.createElement('div', { className: 'cot-toolbar' },
       providers.length > 1
@@ -398,6 +379,9 @@ function CotTranslationBody(props) {
             storeProvider(event.target.value)
           },
         }, providers.map(entry => React.createElement('option', { key: entry.id, value: entry.id }, entry.label)))
+        : null,
+      loadStatus === 'failed'
+        ? React.createElement('span', { className: 'cot-failed', role: 'status' }, t('unavailable'))
         : null,
       React.createElement(UI.Button, {
         size: 'sm',
@@ -417,7 +401,10 @@ function CotTranslationBody(props) {
       }),
       shown.pending ? React.createElement('span', { className: 'cot-spinner', role: 'status', 'aria-label': t('translating') }) : null,
       failed ? React.createElement('span', { className: 'cot-failed', role: 'status' }, t('failed')) : null,
-      failed ? React.createElement(UI.Button, { size: 'sm', variant: 'ghost', onClick: () => { controller.current?.retry() } }, t('retry')) : null),
+      failed ? React.createElement(UI.Button, { size: 'sm', variant: 'ghost', onClick: () => { controller.current?.retry() } }, t('retry')) : null,
+      loadStatus === 'failed'
+        ? React.createElement(UI.Button, { size: 'sm', variant: 'ghost', onClick: () => { void props.reload() } }, t('reload'))
+        : null),
     body)
 }
 
@@ -496,7 +483,9 @@ function CotTranslationSettings(props) {
   }, [config])
 
   if (config === null || draft === null) {
-    return React.createElement('p', { className: 'cot-hint' }, t('unavailable'))
+    return React.createElement('div', { className: 'cot-field' },
+      React.createElement('p', { className: 'cot-hint' }, t('unavailable')),
+      React.createElement(UI.Button, { size: 'sm', variant: 'ghost', onClick: () => { void reload() } }, t('reload')))
   }
   const providers = config.providers
   const busy = status.kind === 'saving'
@@ -851,13 +840,16 @@ export const inject = ['slots', 'locale']
 export async function apply(ctx) {
   ctx.effect(() => ctx.locale.register(NS, { en, zh }), 'cot-translator: dictionaries')
   const state = createStore(null)
+  const loadStatus = createStore('loading')
   const activeLocale = createStore(ctx.locale.getSnapshot().active)
   ctx.effect(() => ctx.locale.subscribe(() => { activeLocale.set(ctx.locale.getSnapshot().active) }), 'cot-translator: active locale')
 
   const refresh = async () => {
     try {
       state.set(await requestJson('/cot-translator/state', {}))
+      loadStatus.set('ready')
     } catch (error) {
+      loadStatus.set('failed')
       ctx.logger?.warn?.(`cot-translator: could not read settings: ${error?.message ?? error}`)
     }
   }
@@ -901,8 +893,9 @@ export async function apply(ctx) {
     priority: 50,
     locale: NS,
     inject: () => ({
-      hooks: { cotTranslatorState: state, cotTranslatorLocale: activeLocale },
+      hooks: { cotTranslatorState: state, cotTranslatorStatus: loadStatus, cotTranslatorLocale: activeLocale },
       translate,
+      reload: refresh,
     }),
   }, CotTranslationBody))
 
@@ -911,7 +904,7 @@ export async function apply(ctx) {
     key: 'dsh-cot-translator-plus',
     locale: NS,
     inject: () => ({
-      hooks: { cotTranslatorState: state, cotTranslatorLocale: activeLocale },
+      hooks: { cotTranslatorState: state, cotTranslatorStatus: loadStatus, cotTranslatorLocale: activeLocale },
       save,
       reload: refresh,
       clearCache,
