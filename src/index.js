@@ -14,13 +14,21 @@ import { TranslationFailure } from './errors.js'
 /** Cordis function-plugin name. */
 export const name = 'cot-translator'
 /** Host services required before the routes can register; the model runtime is optional. */
-export const inject = ['webServer', 'connection']
+export const inject = ['connection']
 
-const ROUTE_STATE = '/cot-translator/state'
-const ROUTE_SETTINGS = '/cot-translator/settings'
-const ROUTE_TRANSLATE = '/cot-translator/translate'
-const ROUTE_CACHE_CLEAR = '/cot-translator/cache/clear'
-const ROUTE_LLM_MODELS = '/cot-translator/llm/models'
+/**
+ * Routes ride the shared `/api` channel rather than top-level paths of their own.
+ *
+ * A phone reaching this Host through a remote tunnel only has its `/api` prefix rewritten into the
+ * tunnel's gated mirror; any other path arrives with the public `Host` header and the Host fence
+ * answers 403. Mounting here keeps the plugin reachable from both a local browser and a remote one.
+ */
+const API_ROOT = '/api/cot-translator'
+const ROUTE_STATE = `${API_ROOT}/state`
+const ROUTE_SETTINGS = `${API_ROOT}/settings`
+const ROUTE_TRANSLATE = `${API_ROOT}/translate`
+const ROUTE_CACHE_CLEAR = `${API_ROOT}/cache/clear`
+const ROUTE_LLM_MODELS = `${API_ROOT}/llm/models`
 const MAX_BODY_BYTES = 512 * 1024
 const LANGUAGE_PATTERN = /^(?:auto|[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*)$/
 
@@ -35,23 +43,16 @@ export function dataPaths() {
   return { directory, settings: join(directory, 'settings.json'), cache: join(directory, 'cache.json') }
 }
 
-function sendJson(res, status, body) {
-  const payload = JSON.stringify(body)
-  res.statusCode = status
-  res.setHeader('content-type', 'application/json; charset=utf-8')
-  res.setHeader('cache-control', 'no-store')
-  res.end(payload)
+function jsonResponse(status, body) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  })
 }
 
-async function readJsonBody(req) {
-  const chunks = []
-  let bytes = 0
-  for await (const chunk of req) {
-    bytes += chunk.length
-    if (bytes > MAX_BODY_BYTES) throw new ConfigError(`request body exceeds ${MAX_BODY_BYTES} bytes`)
-    chunks.push(chunk)
-  }
-  const text = Buffer.concat(chunks).toString('utf8')
+async function readJsonRequest(request) {
+  const text = await request.text()
+  if (text.length > MAX_BODY_BYTES) throw new ConfigError(`request body exceeds ${MAX_BODY_BYTES} bytes`)
   if (text === '') return {}
   try {
     return JSON.parse(text)
@@ -232,147 +233,90 @@ export async function apply(ctx, config) {
     return state()
   }
 
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
+  ctx.effect(() => ctx.connection.fetch.register({
     path: ROUTE_STATE,
-    handler: async (req, res) => {
-      const rejection = ctx.connection.requestRejection(req)
-      if (rejection !== undefined) {
-        res.statusCode = rejection
-        res.end()
-        return
-      }
-      if (req.method !== 'GET') {
-        sendJson(res, 405, { code: 'method-not-allowed', message: 'use GET' })
-        return
-      }
+    methods: ['GET'],
+    requestBody: 'buffered',
+    fetch: async () => {
       try {
-        sendJson(res, 200, await state())
+        return jsonResponse(200, await state())
       } catch (error) {
         warn(`state read failed: ${error?.message ?? error}`)
-        sendJson(res, 500, { code: 'state-failed', message: 'could not read translation settings' })
+        return jsonResponse(500, { code: 'state-failed', message: 'could not read translation settings' })
       }
     },
   }), `cot-translator: GET ${ROUTE_STATE}`)
 
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
+  ctx.effect(() => ctx.connection.fetch.register({
     path: ROUTE_SETTINGS,
-    handler: async (req, res) => {
-      const rejection = ctx.connection.requestRejection(req)
-      if (rejection !== undefined) {
-        res.statusCode = rejection
-        res.end()
-        return
-      }
-      if (req.method !== 'POST') {
-        sendJson(res, 405, { code: 'method-not-allowed', message: 'use POST' })
-        return
-      }
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
       try {
-        sendJson(res, 200, await saveSettings(await readJsonBody(req)))
+        return jsonResponse(200, await saveSettings(await readJsonRequest(request)))
       } catch (error) {
         if (error instanceof ConfigError) {
-          sendJson(res, 400, { code: 'invalid-settings', message: error.message })
-          return
+          return jsonResponse(400, { code: 'invalid-settings', message: error.message })
         }
         warn(`settings write failed: ${error?.message ?? error}`)
-        sendJson(res, 500, { code: 'settings-failed', message: 'could not save translation settings' })
+        return jsonResponse(500, { code: 'settings-failed', message: 'could not save translation settings' })
       }
     },
   }), `cot-translator: POST ${ROUTE_SETTINGS}`)
 
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
+  ctx.effect(() => ctx.connection.fetch.register({
     path: ROUTE_TRANSLATE,
-    handler: async (req, res) => {
-      const rejection = ctx.connection.requestRejection(req)
-      if (rejection !== undefined) {
-        res.statusCode = rejection
-        res.end()
-        return
-      }
-      if (req.method !== 'POST') {
-        sendJson(res, 405, { code: 'method-not-allowed', message: 'use POST' })
-        return
-      }
-      const cancelled = new AbortController()
-      res.on('close', () => { if (!res.writableEnded) cancelled.abort(new Error('client disconnected')) })
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
       try {
-        const body = await readJsonBody(req)
-        sendJson(res, 200, await translate(body, cancelled.signal))
+        return jsonResponse(200, await translate(await readJsonRequest(request), request.signal))
       } catch (error) {
-        if (cancelled.signal.aborted && !res.writableEnded) return
         if (error instanceof ConfigError) {
-          sendJson(res, 400, { code: 'invalid-request', message: error.message })
-          return
+          return jsonResponse(400, { code: 'invalid-request', message: error.message })
         }
         if (error instanceof TranslationFailure) {
           warn(`translation failed: ${error.code} ${error.message}`)
-          sendJson(res, statusOf(error), { code: error.code, message: error.message })
-          return
+          return jsonResponse(statusOf(error), { code: error.code, message: error.message })
         }
-        warn(`unexpected translation failure: ${error?.message ?? error}`)
-        sendJson(res, 500, { code: 'TRANSLATION_FAILED', message: 'translation failed' })
+        warn(`unexpected translation failure: ${request.signal.aborted ? 'client disconnected' : error?.message ?? error}`)
+        return jsonResponse(500, { code: 'TRANSLATION_FAILED', message: 'translation failed' })
       }
     },
   }), `cot-translator: POST ${ROUTE_TRANSLATE}`)
 
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
+  ctx.effect(() => ctx.connection.fetch.register({
     path: ROUTE_CACHE_CLEAR,
-    handler: async (req, res) => {
-      const rejection = ctx.connection.requestRejection(req)
-      if (rejection !== undefined) {
-        res.statusCode = rejection
-        res.end()
-        return
-      }
-      if (req.method !== 'POST') {
-        sendJson(res, 405, { code: 'method-not-allowed', message: 'use POST' })
-        return
-      }
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async () => {
       try {
         await cache.clear()
-        sendJson(res, 200, { cleared: true })
+        return jsonResponse(200, { cleared: true })
       } catch (error) {
         warn(`cache clear failed: ${error?.message ?? error}`)
-        sendJson(res, 500, { code: 'cache-failed', message: 'could not clear the translation cache' })
+        return jsonResponse(500, { code: 'cache-failed', message: 'could not clear the translation cache' })
       }
     },
   }), `cot-translator: POST ${ROUTE_CACHE_CLEAR}`)
 
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
+  ctx.effect(() => ctx.connection.fetch.register({
     path: ROUTE_LLM_MODELS,
-    handler: async (req, res) => {
-      const rejection = ctx.connection.requestRejection(req)
-      if (rejection !== undefined) {
-        res.statusCode = rejection
-        res.end()
-        return
-      }
-      if (req.method !== 'POST') {
-        sendJson(res, 405, { code: 'method-not-allowed', message: 'use POST' })
-        return
-      }
-      const cancelled = new AbortController()
-      res.on('close', () => { if (!res.writableEnded) cancelled.abort(new Error('client disconnected')) })
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
       try {
-        sendJson(res, 200, await listModels(await readJsonBody(req), cancelled.signal))
+        return jsonResponse(200, await listModels(await readJsonRequest(request), request.signal))
       } catch (error) {
-        if (cancelled.signal.aborted && !res.writableEnded) return
         if (error instanceof ConfigError) {
-          sendJson(res, 400, { code: 'invalid-request', message: error.message })
-          return
+          return jsonResponse(400, { code: 'invalid-request', message: error.message })
         }
         if (error instanceof TranslationFailure) {
           warn(`model list failed: ${error.code} ${error.message}`)
-          sendJson(res, statusOf(error), { code: error.code, message: error.message })
-          return
+          return jsonResponse(statusOf(error), { code: error.code, message: error.message })
         }
-        warn(`unexpected model list failure: ${error?.message ?? error}`)
-        sendJson(res, 500, { code: 'TRANSLATION_FAILED', message: 'could not list models' })
+        warn(`unexpected model list failure: ${request.signal.aborted ? 'client disconnected' : error?.message ?? error}`)
+        return jsonResponse(500, { code: 'TRANSLATION_FAILED', message: 'could not list models' })
       }
     },
   }), `cot-translator: POST ${ROUTE_LLM_MODELS}`)

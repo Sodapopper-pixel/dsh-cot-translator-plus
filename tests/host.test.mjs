@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { DEFAULT_SYSTEM_PROMPT } from '../src/config.js'
 import { apply } from '../src/index.js'
 
-function fakeCtx({ llm, rejection } = {}) {
+function fakeCtx({ llm } = {}) {
   const routes = new Map()
   const disposers = []
   const warnings = []
@@ -18,36 +18,28 @@ function fakeCtx({ llm, rejection } = {}) {
       const disposer = fn()
       if (typeof disposer === 'function') disposers.push(disposer)
     },
-    webServer: { register(route) { routes.set(route.path, route.handler); return () => { routes.delete(route.path) } } },
-    connection: { requestRejection: () => rejection },
+    connection: {
+      fetch: {
+        register(route) {
+          routes.set(route.path, route)
+          return () => { routes.delete(route.path) }
+        },
+      },
+    },
   }
   return { ctx, routes, disposers, warnings }
 }
 
-function fakeRequest({ method = 'GET', body } = {}) {
-  const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body))]
-  return {
-    method,
-    headers: {},
-    async *[Symbol.asyncIterator]() { for (const chunk of chunks) yield chunk },
-    on() { return this },
-  }
-}
-
 async function call(routes, path, options = {}) {
-  const handler = routes.get(path)
-  assert.ok(handler, `route ${path} is registered`)
-  const res = {
-    statusCode: 0,
-    headers: {},
-    writableEnded: false,
-    payload: undefined,
-    setHeader(name, value) { this.headers[name] = value },
-    on() { return this },
-    end(payload) { this.writableEnded = true; this.payload = payload },
-  }
-  await handler(fakeRequest(options), res)
-  return { status: res.statusCode, body: res.payload === undefined ? undefined : JSON.parse(res.payload) }
+  const route = routes.get(path)
+  assert.ok(route, `route ${path} is registered`)
+  const method = options.method ?? 'GET'
+  assert.ok(route.methods.includes(method), `route ${path} accepts ${method}`)
+  const init = { method }
+  if (options.body !== undefined) init.body = JSON.stringify(options.body)
+  const response = await route.fetch(new Request(`http://dsh.internal${path}`, init))
+  const text = await response.text()
+  return { status: response.status, body: text === '' ? undefined : JSON.parse(text) }
 }
 
 async function scene(seed = {}) {
@@ -84,7 +76,7 @@ async function scene(seed = {}) {
 test('state, translate, cache reuse, settings, and validation', async () => {
   const run = await scene()
   try {
-    const initial = await call(run.routes, '/cot-translator/state')
+    const initial = await call(run.routes, '/api/cot-translator/state')
     assert.equal(initial.status, 200)
     assert.equal(initial.body.defaultProvider, 'demo')
     assert.equal(initial.body.defaultSystemPrompt, DEFAULT_SYSTEM_PROMPT, 'the card can show and restore the built-in prompt')
@@ -92,24 +84,24 @@ test('state, translate, cache reuse, settings, and validation', async () => {
     assert.deepEqual(initial.body.providers.map(provider => provider.id), ['bing', 'google', 'demo'])
     assert.equal(initial.body.paths.settings.endsWith('settings.json'), true)
 
-    const first = await call(run.routes, '/cot-translator/translate', {
+    const first = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'demo', text: 'hello', targetLanguage: 'zh' },
     })
     assert.equal(first.status, 200)
     assert.deepEqual({ text: first.body.text, cached: first.body.cached }, { text: '[zh]hello', cached: false })
 
-    const second = await call(run.routes, '/cot-translator/translate', {
+    const second = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'demo', text: 'hello', targetLanguage: 'zh' },
     })
     assert.equal(second.body.cached, true)
     assert.equal(second.body.text, '[zh]hello')
 
-    const empty = await call(run.routes, '/cot-translator/translate', {
+    const empty = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'demo', text: '', targetLanguage: 'zh' },
     })
     assert.deepEqual({ text: empty.body.text, cached: empty.body.cached }, { text: '', cached: false })
 
-    const saved = await call(run.routes, '/cot-translator/settings', {
+    const saved = await call(run.routes, '/api/cot-translator/settings', {
       method: 'POST',
       body: { defaultProvider: 'demo', targetLanguage: 'ja', maxTextChars: 6, sites: [{
         id: 'demo', label: 'Demo', endpoint: `${run.origin}/t?to={{target}}`,
@@ -120,24 +112,24 @@ test('state, translate, cache reuse, settings, and validation', async () => {
     assert.equal(saved.body.targetLanguage, 'ja')
     assert.equal(saved.body.maxTextChars, 6)
 
-    const tooLong = await call(run.routes, '/cot-translator/translate', {
+    const tooLong = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'demo', text: 'hello world', targetLanguage: 'ja' },
     })
     assert.equal(tooLong.status, 400)
     assert.equal(tooLong.body.code, 'TRANSLATION_TEXT_LIMIT')
     assert.equal(JSON.stringify(tooLong.body).includes('hello world'), false, 'failures never echo the source')
 
-    const invalid = await call(run.routes, '/cot-translator/settings', { method: 'POST', body: { maxTextChars: 1 } })
+    const invalid = await call(run.routes, '/api/cot-translator/settings', { method: 'POST', body: { maxTextChars: 1 } })
     assert.equal(invalid.status, 400)
     assert.equal(invalid.body.code, 'invalid-settings')
     assert.match(invalid.body.message, /maxTextChars/)
 
-    const wrongMethod = await call(run.routes, '/cot-translator/settings')
-    assert.equal(wrongMethod.status, 405)
+    const settingsRoute = run.routes.get('/api/cot-translator/settings')
+    assert.deepEqual(settingsRoute.methods, ['POST'], 'the channel answers 405 for other methods')
 
-    const cleared = await call(run.routes, '/cot-translator/cache/clear', { method: 'POST', body: {} })
+    const cleared = await call(run.routes, '/api/cot-translator/cache/clear', { method: 'POST', body: {} })
     assert.equal(cleared.body.cleared, true)
-    const afterClear = await call(run.routes, '/cot-translator/translate', {
+    const afterClear = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'demo', text: 'hello', targetLanguage: 'zh' },
     })
     assert.equal(afterClear.body.cached, false)
@@ -146,10 +138,10 @@ test('state, translate, cache reuse, settings, and validation', async () => {
   }
 })
 
-test('settings survive a reload and unauthenticated calls are refused', async () => {
+test('settings survive a reload', async () => {
   const run = await scene()
   try {
-    await call(run.routes, '/cot-translator/settings', {
+    await call(run.routes, '/api/cot-translator/settings', {
       method: 'POST', body: { targetLanguage: 'ja', maxTextChars: 4321 },
     })
     for (const dispose of run.disposers.splice(0).reverse()) await dispose()
@@ -157,22 +149,27 @@ test('settings survive a reload and unauthenticated calls are refused', async ()
     const reloaded = fakeCtx()
     process.env.DSH_HOME = process.env.DSH_HOME
     await apply(reloaded.ctx, { defaultProvider: 'demo' })
-    const state = await call(reloaded.routes, '/cot-translator/state')
+    const state = await call(reloaded.routes, '/api/cot-translator/state')
     assert.equal(state.body.targetLanguage, 'ja')
     assert.equal(state.body.maxTextChars, 4321)
     for (const dispose of reloaded.disposers.reverse()) await dispose()
   } finally {
     await run.close()
   }
+})
 
-  const guarded = await scene({ ctx: { rejection: 401 } })
+test('every route mounts under the shared /api channel', async () => {
+  const run = await scene()
   try {
-    const denied = await call(guarded.routes, '/cot-translator/state')
-    assert.equal(denied.status, 401)
-    const deniedTranslate = await call(guarded.routes, '/cot-translator/translate', { method: 'POST', body: { text: 'a' } })
-    assert.equal(deniedTranslate.status, 401)
+    assert.deepEqual([...run.routes.keys()].sort(), [
+      '/api/cot-translator/cache/clear',
+      '/api/cot-translator/llm/models',
+      '/api/cot-translator/settings',
+      '/api/cot-translator/state',
+      '/api/cot-translator/translate',
+    ])
   } finally {
-    await guarded.close()
+    await run.close()
   }
 })
 
@@ -199,14 +196,14 @@ test('the LLM route dispatches through the model runtime and lists providers', a
     config: { llm: { provider: 'fake', model: 'm', maxTokens: 128, reasoningEffort: 'off' } },
   })
   try {
-    const state = await call(run.routes, '/cot-translator/state')
+    const state = await call(run.routes, '/api/cot-translator/state')
     assert.deepEqual(state.body.providers.map(provider => provider.kind), ['site', 'site', 'site', 'llm'])
     assert.deepEqual(state.body.builtinLlmProviders, [{ id: 'fake', name: 'Fake' }])
     assert.deepEqual(state.body.llmModels, ['m'])
     assert.equal(state.body.llm.provider, 'fake')
     assert.deepEqual(state.body.llmProviders, [])
 
-    const result = await call(run.routes, '/cot-translator/translate', {
+    const result = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'llm', text: 'hello', targetLanguage: 'zh' },
     })
     assert.equal(result.status, 200)
@@ -254,7 +251,7 @@ test('a custom provider translates, regenerates, lists models, and reports its s
     },
   })
   try {
-    const state = await call(run.routes, '/cot-translator/state')
+    const state = await call(run.routes, '/api/cot-translator/state')
     assert.equal(state.body.llm.source, 'custom')
     assert.deepEqual(state.body.builtinLlmProviders, [])
     assert.deepEqual(state.body.providers.at(-1), {
@@ -262,27 +259,27 @@ test('a custom provider translates, regenerates, lists models, and reports its s
     })
     assert.deepEqual(state.body.llmProviders.map(entry => entry.id), ['acme'])
 
-    const llmResult = await call(run.routes, '/cot-translator/translate', {
+    const llmResult = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'llm', text: 'hello', targetLanguage: 'zh' },
     })
     assert.equal(llmResult.status, 200)
     assert.equal(llmResult.body.text, '[fast]hello')
     assert.deepEqual(llmResult.body.via, { kind: 'llm', source: 'custom', provider: 'acme', name: 'Acme', model: 'fast' })
 
-    const siteResult = await call(run.routes, '/cot-translator/translate', {
+    const siteResult = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'demo', text: 'hello', targetLanguage: 'zh' },
     })
     assert.deepEqual(siteResult.body.via, { kind: 'site', id: 'demo', name: 'Demo' })
     assert.equal(siteResult.body.cached, false, 'the site and the LLM never share a cache entry')
 
-    const cachedLlm = await call(run.routes, '/cot-translator/translate', {
+    const cachedLlm = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'llm', text: 'hello', targetLanguage: 'zh' },
     })
     assert.equal(cachedLlm.body.cached, true)
     assert.equal(cachedLlm.body.text, '[fast]hello')
 
     const beforeRefresh = seen.filter(entry => entry.method === 'POST' && entry.url === '/v1/chat/completions').length
-    const refreshed = await call(run.routes, '/cot-translator/translate', {
+    const refreshed = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'llm', text: 'hello', targetLanguage: 'zh', refresh: true },
     })
     assert.equal(refreshed.status, 200)
@@ -291,44 +288,44 @@ test('a custom provider translates, regenerates, lists models, and reports its s
     assert.equal(upstream.length, beforeRefresh + 1, 'a regenerate request reaches the provider again')
     assert.match(upstream.at(-1).system, /Translate the following text to zh/, 'the built-in instruction is sent by default')
 
-    const cleared = await call(run.routes, '/cot-translator/settings', {
+    const cleared = await call(run.routes, '/api/cot-translator/settings', {
       method: 'POST',
       body: { llm: { source: 'custom', customProvider: 'acme', model: 'fast', systemPrompt: null } },
     })
     assert.equal(cleared.status, 200)
     assert.equal(cleared.body.llm.systemPrompt, null, 'a cleared prompt is stored as null')
-    const alone = await call(run.routes, '/cot-translator/translate', {
+    const alone = await call(run.routes, '/api/cot-translator/translate', {
       method: 'POST', body: { provider: 'llm', text: 'hello', targetLanguage: 'zh', refresh: true },
     })
     assert.equal(alone.status, 200)
     assert.deepEqual(seen.filter(entry => entry.method === 'POST').at(-1).roles, ['user'], 'a cleared prompt sends no system message')
 
-    const restoredPrompt = await call(run.routes, '/cot-translator/settings', {
+    const restoredPrompt = await call(run.routes, '/api/cot-translator/settings', {
       method: 'POST',
       body: { llm: { source: 'custom', customProvider: 'acme', model: 'fast', systemPrompt: DEFAULT_SYSTEM_PROMPT } },
     })
     assert.equal(restoredPrompt.body.llm.systemPrompt, DEFAULT_SYSTEM_PROMPT)
 
-    const models = await call(run.routes, '/cot-translator/llm/models', {
+    const models = await call(run.routes, '/api/cot-translator/llm/models', {
       method: 'POST', body: { source: 'custom', providerId: 'acme' },
     })
     assert.equal(models.status, 200)
     assert.deepEqual(models.body.models.map(model => model.id), ['fast', 'smart'])
 
-    const draft = await call(run.routes, '/cot-translator/llm/models', {
+    const draft = await call(run.routes, '/api/cot-translator/llm/models', {
       method: 'POST', body: { source: 'custom', providerId: 'draft', baseUrl: `${origin}/v1`, apiKey: 'k-2' },
     })
     assert.deepEqual(draft.body.models.map(model => model.id), ['fast', 'smart'])
 
     assert.ok(seen.every(entry => entry.authorization === 'Bearer k-1' || entry.authorization === 'Bearer k-2'))
 
-    const rejected = await call(run.routes, '/cot-translator/settings', {
+    const rejected = await call(run.routes, '/api/cot-translator/settings', {
       method: 'POST', body: { llm: { source: 'custom', customProvider: 'ghost', model: 'fast' } },
     })
     assert.equal(rejected.status, 400)
     assert.match(rejected.body.message, /ghost/)
 
-    const saved = await call(run.routes, '/cot-translator/settings', {
+    const saved = await call(run.routes, '/api/cot-translator/settings', {
       method: 'POST',
       body: {
         llm: { source: 'custom', customProvider: 'acme', model: 'fast' },
@@ -338,7 +335,7 @@ test('a custom provider translates, regenerates, lists models, and reports its s
     assert.equal(saved.status, 200)
     assert.equal(saved.body.llmProviders[0].apiKey, 'k-3')
 
-    const kept = await call(run.routes, '/cot-translator/settings', {
+    const kept = await call(run.routes, '/api/cot-translator/settings', {
       method: 'POST', body: { targetLanguage: 'ja' },
     })
     assert.equal(kept.status, 200)

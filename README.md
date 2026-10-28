@@ -123,15 +123,15 @@ Translate the following text from {{source}} to {{target}}. Translate the text a
 
 ## Host 路由
 
-全部走 Connection 的浏览器鉴权（与 `/api` 同级），未鉴权直接 401。
+全部挂在 Connection 的共享 `/api` 通道上（`ctx.connection.fetch.register`），因此共用该通道的浏览器鉴权与信任校验。不要改成顶层路径：远程隧道只镜像 `/api` 前缀，其他路径会带着公网 `Host` 头到达 Host 并被信任校验直接 403（手机端实测）。
 
 | 路由 | 方法 | 作用 |
 | --- | --- | --- |
-| `/cot-translator/state` | GET | 生效配置、可用服务、Harness 提供商及其模型、自定义提供商、内置系统提示词、设置文件位置 |
-| `/cot-translator/settings` | POST | 校验并保存设置，返回新的 state；非法值 400。省略 `llmProviders` 时保留已存列表 |
-| `/cot-translator/translate` | POST | `{provider, text, targetLanguage, sourceLanguage?, refresh?}` → `{text, cached, via}`；`refresh: true` 表示跳过缓存重新翻译并覆盖缓存条目 |
-| `/cot-translator/llm/models` | POST | `{source:"builtin", provider}` 或 `{source:"custom", providerId, baseUrl?, apiKey?}` → `{models:[{id,name}]}` |
-| `/cot-translator/cache/clear` | POST | 清空持久缓存 |
+| `/api/cot-translator/state` | GET | 生效配置、可用服务、Harness 提供商及其模型、自定义提供商、内置系统提示词、设置文件位置 |
+| `/api/cot-translator/settings` | POST | 校验并保存设置，返回新的 state；非法值 400。省略 `llmProviders` 时保留已存列表 |
+| `/api/cot-translator/translate` | POST | `{provider, text, targetLanguage, sourceLanguage?, refresh?}` → `{text, cached, via}`；`refresh: true` 表示跳过缓存重新翻译并覆盖缓存条目 |
+| `/api/cot-translator/llm/models` | POST | `{source:"builtin", provider}` 或 `{source:"custom", providerId, baseUrl?, apiKey?}` → `{models:[{id,name}]}` |
+| `/api/cot-translator/cache/clear` | POST | 清空持久缓存 |
 
 `provider` 缺省或失配时回落到 `defaultProvider`，再回落到第一个可用站点。相同 `(服务, 语义配方, 源语言, 目标语言, 原文)` 的并发请求共享一次上游调用，成功后写缓存；语义配方包含 LLM 来源与自定义提供商地址，因此同一段原文的站点结果与 LLM 结果不会共用缓存条目。
 

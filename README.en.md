@@ -122,15 +122,15 @@ Translate the following text from {{source}} to {{target}}. Translate the text a
 
 ## Host routes
 
-Every route applies Connection's browser authentication, exactly like `/api`; unauthenticated calls receive 401.
+Every route mounts on Connection's shared `/api` channel (`ctx.connection.fetch.register`) and therefore shares that channel's browser authentication and trust check. Do not move these to top-level paths: a remote tunnel mirrors only the `/api` prefix, so any other path arrives at the Host carrying the public `Host` header and the trust check answers 403 (measured from a phone).
 
 | Route | Method | Purpose |
 | --- | --- | --- |
-| `/cot-translator/state` | GET | Effective settings, available services, Harness providers and their models, custom providers, the built-in system prompt, settings path |
-| `/cot-translator/settings` | POST | Validate and save settings, returning the new state; invalid values are 400. An omitted `llmProviders` keeps the stored list |
-| `/cot-translator/translate` | POST | `{provider, text, targetLanguage, sourceLanguage?, refresh?}` → `{text, cached, via}`; `refresh: true` skips the cache and replaces the stored entry |
-| `/cot-translator/llm/models` | POST | `{source:"builtin", provider}` or `{source:"custom", providerId, baseUrl?, apiKey?}` → `{models:[{id,name}]}` |
-| `/cot-translator/cache/clear` | POST | Drop the persistent cache |
+| `/api/cot-translator/state` | GET | Effective settings, available services, Harness providers and their models, custom providers, the built-in system prompt, settings path |
+| `/api/cot-translator/settings` | POST | Validate and save settings, returning the new state; invalid values are 400. An omitted `llmProviders` keeps the stored list |
+| `/api/cot-translator/translate` | POST | `{provider, text, targetLanguage, sourceLanguage?, refresh?}` → `{text, cached, via}`; `refresh: true` skips the cache and replaces the stored entry |
+| `/api/cot-translator/llm/models` | POST | `{source:"builtin", provider}` or `{source:"custom", providerId, baseUrl?, apiKey?}` → `{models:[{id,name}]}` |
+| `/api/cot-translator/cache/clear` | POST | Drop the persistent cache |
 
 A missing or unknown `provider` falls back to `defaultProvider`, then to the first available site. Identical concurrent requests keyed by `(service, semantic recipe, source language, target language, text)` share one upstream call, and only successes are cached; the recipe includes the LLM source and the custom provider address, so a site result and an LLM result for the same text never share an entry.
 

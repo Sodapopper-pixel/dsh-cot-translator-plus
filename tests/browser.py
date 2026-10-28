@@ -359,7 +359,7 @@ def regenerate_flow(page):
                   if entry['method'] == 'POST' and entry['path'] == '/v1/chat/completions'])
     result = page.evaluate('''async () => {
       const post = async (body) => {
-        const response = await fetch('/cot-translator/translate', {
+        const response = await fetch('/api/cot-translator/translate', {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
         })
         return { status: response.status, body: await response.json() }
@@ -461,7 +461,7 @@ def restore_settings(page, original):
     body = dict(original)
     body.setdefault('llmProviders', [])
     status = page.evaluate('''async (body) => {
-      const response = await fetch('/cot-translator/settings', {
+      const response = await fetch('/api/cot-translator/settings', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body,
       })
       return response.status

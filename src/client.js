@@ -180,6 +180,12 @@ function createStore(initial) {
   }
 }
 
+/**
+ * The plugin's routes live under the shared `/api` channel: a remote browser only has that prefix
+ * mirrored by the tunnel, so top-level paths would 403 outside the local machine.
+ */
+const API_ROOT = '/api/cot-translator'
+
 async function requestJson(path, init, signal) {
   const response = await fetch(path, { credentials: 'same-origin', ...init, signal })
   let body
@@ -846,7 +852,7 @@ export async function apply(ctx) {
 
   const refresh = async () => {
     try {
-      state.set(await requestJson('/cot-translator/state', {}))
+      state.set(await requestJson(`${API_ROOT}/state`, {}))
       loadStatus.set('ready')
     } catch (error) {
       loadStatus.set('failed')
@@ -854,7 +860,7 @@ export async function apply(ctx) {
     }
   }
   const save = async (body) => {
-    const next = await requestJson('/cot-translator/settings', {
+    const next = await requestJson(`${API_ROOT}/settings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -863,10 +869,10 @@ export async function apply(ctx) {
     return next
   }
   const clearCache = async () => {
-    await requestJson('/cot-translator/cache/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    await requestJson(`${API_ROOT}/cache/clear`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
   }
   const translateDetailed = async (request, signal) => {
-    return await requestJson('/cot-translator/translate', {
+    return await requestJson(`${API_ROOT}/translate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(request),
@@ -874,7 +880,7 @@ export async function apply(ctx) {
   }
   const translate = async (request, signal) => (await translateDetailed(request, signal)).text
   const listModels = async (request) => {
-    const body = await requestJson('/cot-translator/llm/models', {
+    const body = await requestJson(`${API_ROOT}/llm/models`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(request),
